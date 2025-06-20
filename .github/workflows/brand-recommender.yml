@@ -35,20 +35,9 @@ jobs:
       
       - name: Upload results as artifacts
         uses: actions/upload-artifact@v4
-        if: always()  # Upload even if there are errors
+        if: always()
         with:
           name: brand-recommendations-${{ github.run_number }}
           path: brand_recommendations/
           retention-days: 30
-      
-      - name: Create release with results (optional)
-        if: success()
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: results-${{ github.run_number }}
-          name: Brand Recommendations - ${{ github.run_number }}
-          files: brand_recommendations/*
-          draft: false
-          prerelease: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          if-no-files-found: warn
