@@ -1,14 +1,28 @@
-#!/usr/bin/env python3
+def create_sample_input(self):
+        """Create a sample input CSV file"""
+        sample_products = [
+            "Smartphone",
+            "Laptop",
+            "Running Shoes",
+            "Coffee Maker",
+            "Headphones"
+        ]
+        
+        with open(self.input_file, 'w', newline='', encoding='utf-8') as file:
+            writer = csv.writer(file)
+            writer.writerow(["product"])  # Header
+            for product in sample_products:
+                writer.writerow([product])
+        
+        logging.info(f"Sample input file created: {self.input_file}")#!/usr/bin/env python3
 """
-AI Brand Recommendation Script
+AI Brand Recommendation Script - GitHub Actions Version
 Automatically processes product CSV and gets brand recommendations from multiple AI models
 """
 
 import csv
 import json
 import time
-import schedule
-import threading
 import os
 from datetime import datetime
 from pathlib import Path
@@ -17,24 +31,19 @@ import openai
 from anthropic import Anthropic
 import pandas as pd
 import logging
-from dotenv import load_dotenv
 
-# Configure logging
+# Configure logging for GitHub Actions
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('brand_recommender.log'),
-        logging.StreamHandler()
+        logging.StreamHandler()  # Only console output for GitHub Actions
     ]
 )
 
 class BrandRecommender:
     def __init__(self):
-        # Load environment variables from .env file
-        load_dotenv()
-        
-        # API Keys from environment variables
+        # API Keys from environment variables (GitHub Secrets)
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
         self.anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
         self.deepseek_api_key = os.getenv("DEEPSEEK_API_KEY")
@@ -47,7 +56,7 @@ class BrandRecommender:
         self.anthropic_client = Anthropic(api_key=self.anthropic_api_key)
         
         # Configuration
-        self.input_file = "products_input.csv"  # Change this to your input file path
+        self.input_file = "products_input.csv"
         self.output_dir = "brand_recommendations"
         Path(self.output_dir).mkdir(exist_ok=True)
         
@@ -73,8 +82,7 @@ class BrandRecommender:
             missing_keys.append("DEEPSEEK_API_KEY")
             
         if missing_keys:
-            error_msg = f"Missing required API keys: {', '.join(missing_keys)}\n"
-            error_msg += "Please set them in your .env file or environment variables."
+            error_msg = f"Missing required API keys: {', '.join(missing_keys)}"
             logging.error(error_msg)
             raise ValueError(error_msg)
 
@@ -194,15 +202,25 @@ Please respond in this exact JSON format:
             if response:
                 parsed_response = self.parse_response(response)
                 if parsed_response and "brands" in parsed_response:
+                    # Extract brands and sort by rank
+                    brands_list = []
                     for brand_info in parsed_response["brands"]:
-                        results.append({
-                            "product": product,
-                            "model": model_name,
-                            "rank": brand_info.get("rank", ""),
-                            "brand": brand_info.get("brand", ""),
-                            "reason": brand_info.get("reason", ""),
-                            "timestamp": datetime.now().isoformat()
-                        })
+                        rank = brand_info.get("rank", 999)
+                        brand = brand_info.get("brand", "").strip()
+                        if brand:
+                            brands_list.append((rank, brand))
+                    
+                    # Sort by rank and create comma-separated string
+                    brands_list.sort(key=lambda x: x[0])  # Sort by rank
+                    top_brands = [brand for rank, brand in brands_list[:5]]  # Take top 5
+                    brands_string = ", ".join(top_brands)
+                    
+                    # Add single row for this product-model combination
+                    results.append({
+                        "product": product,
+                        "model": model_name,
+                        "brands": brands_string
+                    })
                 else:
                     logging.warning(f"Failed to parse response from {model_name}")
             
@@ -247,34 +265,12 @@ Please respond in this exact JSON format:
             df.to_csv(output_file, index=False, encoding='utf-8')
             logging.info(f"Results saved to {output_file}")
             
-            # Also save a summary with aggregated recommendations
-            self.save_summary_csv(results, timestamp)
-            
         except Exception as e:
             logging.error(f"Error saving CSV: {e}")
 
     def save_summary_csv(self, results, timestamp):
-        """Save aggregated summary of recommendations"""
-        summary_file = f"{self.output_dir}/brand_summary_{timestamp}.csv"
-        
-        try:
-            df = pd.DataFrame(results)
-            
-            # Aggregate recommendations by product and brand
-            summary = df.groupby(['product', 'brand']).agg({
-                'model': 'count',  # How many models recommended this brand
-                'rank': 'mean',    # Average rank
-                'reason': 'first'  # Take first reason
-            }).rename(columns={'model': 'model_count', 'rank': 'avg_rank'}).reset_index()
-            
-            # Sort by product and model count (most recommended first)
-            summary = summary.sort_values(['product', 'model_count', 'avg_rank'], ascending=[True, False, True])
-            
-            summary.to_csv(summary_file, index=False, encoding='utf-8')
-            logging.info(f"Summary saved to {summary_file}")
-            
-        except Exception as e:
-            logging.error(f"Error saving summary: {e}")
+        """This method is no longer needed with the simplified format"""
+        pass
 
     def run_analysis(self):
         """Main function to run the brand recommendation analysis"""
@@ -301,99 +297,31 @@ Please respond in this exact JSON format:
         # Save results
         if all_results:
             self.save_results_csv(all_results)
-            logging.info(f"Analysis completed! Processed {len(products)} products with {len(all_results)} total recommendations.")
+            logging.info(f"Analysis completed! Processed {len(products)} products with {len(all_results)} model responses.")
         else:
             logging.error("No results generated")
 
-    def create_sample_input(self):
-        """Create a sample input CSV file"""
-        sample_products = [
-            "Smartphone",
-            "Laptop",
-            "Running Shoes",
-            "Coffee Maker",
-            "Headphones"
-        ]
-        
-        with open(self.input_file, 'w', newline='', encoding='utf-8') as file:
-            writer = csv.writer(file)
-            writer.writerow(["product"])  # Header
-            for product in sample_products:
-                writer.writerow([product])
-        
-        logging.info(f"Sample input file created: {self.input_file}")
-
-def run_scheduler():
-    """Run the scheduled tasks"""
-    recommender = BrandRecommender()
-    
-    # Check if input file exists, create sample if not
-    if not Path(recommender.input_file).exists():
-        print(f"Input file {recommender.input_file} not found. Creating sample file...")
-        recommender.create_sample_input()
-        print("Please edit the input file with your products and restart the script.")
-        return
-    
-    recommender.run_analysis()
-
 def main():
-    """Main function with scheduling options"""
-    print("AI Brand Recommendation Script")
-    print("=" * 40)
+    """Main function for GitHub Actions - simplified version"""
+    logging.info("AI Brand Recommendation Script - GitHub Actions")
+    logging.info("=" * 50)
     
-    # Setup
-    recommender = BrandRecommender()
-    
-    # Check if input file exists
-    if not Path(recommender.input_file).exists():
-        print(f"Input file {recommender.input_file} not found. Creating sample file...")
-        recommender.create_sample_input()
-        print("Please edit the input file with your products and restart the script.")
-        return
-    
-    print("\nScheduling Options:")
-    print("1. Run once now")
-    print("2. Run every hour")
-    print("3. Run daily at 9 AM")
-    print("4. Run weekly on Monday at 9 AM")
-    print("5. Custom schedule (enter cron-like frequency)")
-    
-    choice = input("\nSelect option (1-5): ").strip()
-    
-    if choice == "1":
-        run_scheduler()
-    elif choice == "2":
-        schedule.every().hour.do(run_scheduler)
-        print("Scheduled to run every hour. Press Ctrl+C to stop.")
-    elif choice == "3":
-        schedule.every().day.at("09:00").do(run_scheduler)
-        print("Scheduled to run daily at 9 AM. Press Ctrl+C to stop.")
-    elif choice == "4":
-        schedule.every().monday.at("09:00").do(run_scheduler)
-        print("Scheduled to run weekly on Monday at 9 AM. Press Ctrl+C to stop.")
-    elif choice == "5":
-        minutes = input("Enter frequency in minutes (e.g., 60 for hourly): ").strip()
-        try:
-            minutes = int(minutes)
-            schedule.every(minutes).minutes.do(run_scheduler)
-            print(f"Scheduled to run every {minutes} minutes. Press Ctrl+C to stop.")
-        except ValueError:
-            print("Invalid input. Running once now.")
-            run_scheduler()
-            return
-    else:
-        print("Invalid choice. Running once now.")
-        run_scheduler()
-        return
-    
-    # Keep the scheduler running
-    if choice in ["2", "3", "4", "5"]:
-        try:
-            while True:
-                schedule.run_pending()
-                time.sleep(60)  # Check every minute
-        except KeyboardInterrupt:
-            print("\nScheduler stopped.")
+    try:
+        recommender = BrandRecommender()
+        
+        # Check if input file exists, create sample if not
+        if not Path(recommender.input_file).exists():
+            logging.info(f"Input file {recommender.input_file} not found. Creating sample file...")
+            recommender.create_sample_input()
+            logging.info("Sample file created with default products.")
+        
+        # Run the analysis directly (no user interaction)
+        recommender.run_analysis()
+        logging.info("Script completed successfully!")
+        
+    except Exception as e:
+        logging.error(f"Script failed: {e}")
+        raise
 
 if __name__ == "__main__":
     main()
